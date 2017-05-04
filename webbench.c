@@ -26,12 +26,17 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <string.h>
+#include <time.h>
 
 /* values */
 volatile int timerexpired=0;
 int speed=0;
 int failed=0;
 int bytes=0;
+
+double min_time= 120000000000.0;
+double max_time=0.0;
+double all_time = 0.0;
 /* globals */
 int http10=1; /* 0 - http/0.9, 1 - http/1.0, 2 - http/1.1 */
 /* Allow: GET, HEAD, OPTIONS, TRACE */
@@ -101,6 +106,9 @@ static const struct option long_options[]=
 static void benchcore(const char* host,const int port, const char *request);
 static int bench(void);
 static void build_request(const char *url);
+
+static void mark_time(clock_t start,clock_t finish);
+static void set_all_time(double min,double max,double all);
 
 static void alarm_handler(int signal)
 {
@@ -604,13 +612,7 @@ void build_request(const char *url)
 			strcat(request,"\r\n");
 		}
 	}
-	
-	
-	// strcat(request, "Content-Type: ");
-	// strcat(request, content_type);
-	// strcat(request, "\r\n");
-	// printf("ddd %s ddd",headstr);
-	
+
 	/* add post data */
 	if(method==METHOD_POST)
 	{
@@ -624,20 +626,37 @@ void build_request(const char *url)
 
 			for(i = 0; i < maxlen; i++)
 			{
-				snprintf(requestall+i*POSTDATA_SIZE, POSTDATA_SIZE,
-								"%s"
-								"Accept: */*\r\n"
-								"Content-Length: "
-								"%d"
-								"\r\n"
-								"%s"
-								"\r\n\r\n"
-								"%s",
-								request,
-								strlen(postdataall+i*POSTDATA_SIZE),
-								headdataall + (i % headdataallline) * HEADDATA_SIZE,
-								postdataall + (i % postdataallline) * POSTDATA_SIZE);
-								printf("cccc\n%s\n",requestall+i*POSTDATA_SIZE);
+
+				if(headdataall)
+				{
+					snprintf(requestall+i*POSTDATA_SIZE, POSTDATA_SIZE,
+													"%s"
+													"Accept: */*\r\n"
+													"Content-Length: "
+													"%d"
+													"\r\n"
+													"%s"
+													"\r\n\r\n"
+													"%s",
+													request,
+													strlen(postdataall+(i % postdataallline) * POSTDATA_SIZE),
+													headdataall + (i % headdataallline) * HEADDATA_SIZE,
+													postdataall + (i % postdataallline) * POSTDATA_SIZE);
+													printf("cccc\n%s\n",requestall+i*POSTDATA_SIZE);
+				}else
+				{
+					snprintf(requestall+i*POSTDATA_SIZE, POSTDATA_SIZE,
+													"%s"
+													"Accept: */*\r\n"
+													"Content-Length: "
+													"%d"
+													"\r\n\r\n"
+													"%s",
+													request,
+													strlen(postdataall+(i % postdataallline)*POSTDATA_SIZE),
+													postdataall + (i % postdataallline) * POSTDATA_SIZE);
+													printf("cccc\n%s\n",requestall+i*POSTDATA_SIZE);
+				}
 			}
 			requestallsize = i;
 			clients = i < clients ? i : clients;
@@ -660,12 +679,16 @@ void build_request(const char *url)
 /* vraci system rc error kod */
 static int bench(void)
 {
-	int i,j,k;	
+	int i,j,k;
+	double l,m,n;	
 	pid_t pid=0;
 	FILE *f;
 
 	/* check avaibility of target server */
 	i=Socket(proxyhost==NULL?host:proxyhost,proxyport);
+	
+	// printf("%s --- %d\n",host,proxyport);
+	
 	if(i<0) { 
 		fprintf(stderr,"\nConnect to server failed. Aborting benchmark.\n");
 		return 1;
@@ -725,7 +748,7 @@ static int bench(void)
 			return 3;
 		}
 		/* fprintf(stderr,"Child - %d %d\n",speed,failed); */
-		fprintf(f,"%d %d %d\n",speed,failed,bytes);
+		fprintf(f,"%d %d %d %lf %lf %lf\n",speed,failed,bytes,min_time,max_time,all_time);
 		fclose(f);
 		return 0;
 	} else
@@ -743,7 +766,7 @@ static int bench(void)
 
 		while(1)
 		{
-			pid=fscanf(f,"%d %d %d",&i,&j,&k);
+			pid=fscanf(f,"%d %d %d %lf %lf %lf",&i,&j,&k,&l,&m,&n);
 			if(pid<2)
 			{
 				fprintf(stderr,"Some of our childrens died.\n");
@@ -752,6 +775,8 @@ static int bench(void)
 			speed+=i;
 			failed+=j;
 			bytes+=k;
+			
+			set_all_time(l,m,n);
 			/* fprintf(stderr,"*Knock* %d %d read=%d\n",speed,failed,pid); */
 			if(--clients==0) break;
 		}
@@ -762,8 +787,25 @@ static int bench(void)
 				(int)(bytes/(float)benchtime),
 				speed,
 				failed);
+		printf("min_time=%0.2fms , max_time=%0.2fms, ave_time=%0.2fms all_time=%0.2fms .\n",min_time,max_time,all_time/(speed+failed),all_time);
 	}
 	return i;
+}
+
+void mark_time(clock_t start,clock_t finish)
+{
+	double duration;
+	duration = (double)(finish - start);
+	min_time = duration < min_time ? duration : min_time;
+	max_time = duration > max_time ? duration : max_time;
+	all_time += duration;
+}
+
+static void set_all_time(double min,double max,double all)
+{
+	min_time = min < min_time ? min : min_time;
+	max_time = max > max_time ? max : max_time;
+	all_time += all;
 }
 
 void benchcore(const char *host,const int port,const char *req)
@@ -772,7 +814,10 @@ void benchcore(const char *host,const int port,const char *req)
 	char buf[1500];
 	int s,i;
 	struct sigaction sa;
-
+	
+	/*init time*/
+	clock_t start, finish;
+	
 	/* setup alarm signal handler */
 	sa.sa_handler=alarm_handler;
 	sa.sa_flags=0;
@@ -783,6 +828,7 @@ void benchcore(const char *host,const int port,const char *req)
 	rlen=strlen(req);
 	nexttry:while(1)
 	{
+		
 		if(timerexpired)
 		{
 			if(failed>0)
@@ -792,22 +838,34 @@ void benchcore(const char *host,const int port,const char *req)
 			}
 			return;
 		}
+
 		s=Socket(host,port);                          
-		if(s<0) { failed++;continue;} 
+		if(s<0) { failed++;continue;}
+		
+		start = clock();
+
 		if(rlen!=write(s,req,rlen)) {failed++;close(s);continue;}
+		
+		
 		if(http10==0) 
 			if(shutdown(s,1)) { failed++;close(s);continue;}
-		if(force==0) 
+		if(force==0)
 		{
 			/* read all available data from socket */
 			while(1)
 			{
 				if(timerexpired)
-					break; 
+					break;
 				i=read(s,buf,1500);
-				/* fprintf(stderr,"%d\n",i); */
+				
+//				/* fprintf(stderr,"%d\n",i); */
+				printf("%s\n",buf);
 				if(i<0) 
 				{ 
+					//计算时间
+					finish = clock();
+					mark_time(start,finish);
+
 					failed++;
 					close(s);
 					goto nexttry;
@@ -815,8 +873,15 @@ void benchcore(const char *host,const int port,const char *req)
 				else if(i==0) break;
 				else bytes+=i;
 			}
+
+			//计算时间
+			finish = clock();
+			mark_time(start,finish);
 		}
 		if(close(s)) {failed++;continue;}
 		speed++;
+
 	}
 }
+
+

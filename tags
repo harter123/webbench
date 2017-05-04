@@ -6,6 +6,8 @@ benchcore	webbench.c	/^void benchcore(const char *host,const int port,con/
 build_request	webbench.c	/^void build_request(const char *url)$/
 get_headdata4file	webbench.c	/^int get_headdata4file(char *filename)$/
 get_postdata4file	webbench.c	/^int get_postdata4file(char *filename)$/
+mark_time	webbench.c	/^void mark_time(clock_t start,clock_t finish)$/
+set_all_time	webbench.c	/^static void set_all_time(double min,double max,dou/
 urlencode	webbench.c	/^int urlencode(char *src, int srclen, char *dst, in/
 urlencodeall	webbench.c	/^int urlencodeall(char *src, int srclen, char *dst,/
 usage	webbench.c	/^static void usage(void)$/
