@@ -836,7 +836,7 @@ static int bench(void)
 		if(proxyhost)
 			dsthost = proxyhost;
 
-		printf("req=%s\n",requestdata);
+//		printf("req=%s\n",requestdata);
 
 		benchcore(dsthost,proxyport,requestdata);
 
