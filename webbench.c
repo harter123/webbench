@@ -997,7 +997,8 @@ void benchcore(const char *host,const int port,const char *req)
 
 int  assertrsp(char *rsp){
 	if(assertlen > 0){
-		for(int i=0;i<assertlen;i++){
+		int i;
+		for(i=0;i<assertlen;i++){
 			char *check;
 			check = strstr(rsp,assertlist[i]);
 			if (NULL==check){
