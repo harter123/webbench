@@ -612,6 +612,7 @@ void build_request(const char *url)
 			strcat(request,"\r\n");
 		}
 	}
+//在发送的时候在改post的数据，没必要这样做
 
 	/* add post data */
 	if(method==METHOD_POST)
@@ -670,9 +671,34 @@ void build_request(const char *url)
 			strcat(request, "\r\n\r\n");
 			strcat(request, postdata);
 		}
+	}else{
+		//	如果是get请求，如果存在head的文件
+		if(headdataall){
+			int maxlen = headdataallline;
+			requestall = calloc(POSTDATA_SIZE, maxlen);
+
+			if(!requestall)
+				return;
+
+			for(i = 0; i < maxlen; i++)
+			{
+				snprintf(requestall+i*POSTDATA_SIZE, POSTDATA_SIZE,
+							"%s"
+							"Accept: */*\r\n"
+							"%s"
+							"\r\n",
+							request,
+							headdataall + i * HEADDATA_SIZE);
+				printf("cccc\n%s\n",requestall+i*POSTDATA_SIZE);
+			}
+			requestallsize = i;
+			clients = i < clients ? i : clients;
+		}else {
+			if(http10>0) {
+				strcat(request,"\r\n");/* add empty line at end */
+			}
+		}
 	}
-	/* add empty line at end */
-	else if(http10>0) strcat(request,"\r\n"); 
 	printf("Req=%s\n",request);
 }
 
@@ -737,7 +763,7 @@ static int bench(void)
 			requestdata = requestall+i*POSTDATA_SIZE;
 		if(proxyhost)
 			dsthost = proxyhost;
-
+//		printf("%s\n",requestdata);
 		benchcore(dsthost,proxyport,requestdata);
 
 		/* write results to pipe */
@@ -859,7 +885,7 @@ void benchcore(const char *host,const int port,const char *req)
 				i=read(s,buf,1500);
 				
 //				/* fprintf(stderr,"%d\n",i); */
-				printf("%s\n",buf);
+//				printf("%s\n",buf);
 				if(i<0) 
 				{ 
 					//计算时间
