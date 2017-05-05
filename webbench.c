@@ -58,7 +58,8 @@ int mypipe[2];
 char host[MAXHOSTNAMELEN];
 #define REQUEST_SIZE 2048
 char request[REQUEST_SIZE];
-#define POSTDATA_SIZE 1024
+
+#define POSTDATA_SIZE 512
 char postdata[POSTDATA_SIZE] = {0};
 char postdatalen[5] = {0};
 
@@ -76,6 +77,11 @@ int headdataallline = 0;
 // head data in command
 char headstr[HEADDATA_SIZE] = {0};
 int headlen = 0;
+
+//assert data in command
+char assertstr[HEADDATA_SIZE] = {0};
+char *assertlist[10];
+int assertlen = 0;
 
 // char *content_type = "application/x-www-form-urlencoded";
 
@@ -99,6 +105,7 @@ static const struct option long_options[]=
 	{"clients",required_argument,NULL,'c'},
 	{"head",required_argument,NULL,'h'},
 	{"headfile",required_argument,NULL,'H'},
+	{"assert",required_argument,NULL,'A'},
 	{NULL,0,NULL,0}
 };
 
@@ -107,8 +114,10 @@ static void benchcore(const char* host,const int port, const char *request);
 static int bench(void);
 static void build_request(const char *url);
 
-static void mark_time(clock_t start,clock_t finish);
-static void set_all_time(double min,double max,double all);
+static void mark_time(clock_t start,clock_t finish);//子进程记录时间数据
+static void set_all_time(double min,double max,double all);//父进程统计时间
+
+static int assertrsp(char *rsp);//用于断言
 
 static void alarm_handler(int signal)
 {
@@ -136,6 +145,7 @@ static void usage(void)
 		"  -H|--headfile            Add request head from file. the num of char in a line must be less then 128.\n"	
 		"  -F|--file                Use POST request method from file. The num of char in a line must be less then 1024.\n"  
 		"  -?|--help                This information.\n"
+		"  -A|--assert              The key for assert.More than one keys use ';',must be less then 128.\n"
 		"  -V|--version             Display program version.\n"
 		);
 };
@@ -151,7 +161,7 @@ int main(int argc, char *argv[])
 		return 2;
 	} 
 
-	while((opt=getopt_long(argc,argv,"912Vfrt:p:P:F:c:h:H:T:?",long_options,&options_index))!=EOF )
+	while((opt=getopt_long(argc,argv,"912Vfrt:p:P:F:c:h:H:A:T:?",long_options,&options_index))!=EOF )
 	{
 		switch(opt)
 		{
@@ -213,6 +223,12 @@ int main(int argc, char *argv[])
 			{
 				headlen = HEADDATA_SIZE > strlen(optarg) ? strlen(optarg) : HEADDATA_SIZE;
 				strcpy(headstr, optarg);
+				break;
+			}
+			case 'A':
+			{
+				assertlen = strlen(optarg);
+				strcpy(assertstr, optarg);
 				break;
 			}
 			case ':':
@@ -598,7 +614,7 @@ void build_request(const char *url)
 	if(http10>1)
 		strcat(request,"Connection: close\r\n");
 	
-	
+	//这里是处理-h的参数，添加头部的值
 	if(headlen > 0){
 		/*set head*/
 		char *strsplite = headstr;
@@ -612,94 +628,112 @@ void build_request(const char *url)
 			strcat(request,"\r\n");
 		}
 	}
-//在发送的时候在改post的数据，没必要这样做
 
-	/* add post data */
-	if(method==METHOD_POST)
-	{
-		if(postdataall)
+	//处理断言
+	if(assertlen>0){
+		char *delim = ";";
+		char *pch;
+		pch = strtok (assertstr,delim);
+		assertlen = 0;
+		while (pch != NULL)
 		{
-			int maxlen = postdataallline > headdataallline ? postdataallline : headdataallline;
-			requestall = calloc(POSTDATA_SIZE, maxlen);
-			
-			if(!requestall)
-				return;
-
-			for(i = 0; i < maxlen; i++)
-			{
-
-				if(headdataall)
-				{
-					snprintf(requestall+i*POSTDATA_SIZE, POSTDATA_SIZE,
-													"%s"
-													"Accept: */*\r\n"
-													"Content-Length: "
-													"%d"
-													"\r\n"
-													"%s"
-													"\r\n\r\n"
-													"%s",
-													request,
-													strlen(postdataall+(i % postdataallline) * POSTDATA_SIZE),
-													headdataall + (i % headdataallline) * HEADDATA_SIZE,
-													postdataall + (i % postdataallline) * POSTDATA_SIZE);
-													printf("cccc\n%s\n",requestall+i*POSTDATA_SIZE);
-				}else
-				{
-					snprintf(requestall+i*POSTDATA_SIZE, POSTDATA_SIZE,
-													"%s"
-													"Accept: */*\r\n"
-													"Content-Length: "
-													"%d"
-													"\r\n\r\n"
-													"%s",
-													request,
-													strlen(postdataall+(i % postdataallline)*POSTDATA_SIZE),
-													postdataall + (i % postdataallline) * POSTDATA_SIZE);
-													printf("cccc\n%s\n",requestall+i*POSTDATA_SIZE);
-				}
-			}
-			requestallsize = i;
-			clients = i < clients ? i : clients;
-			// printf("clients: %d",clients);
-		}
-		else
-		{
-			strcat(request, "Accept: */*\r\n");
-			strcat(request, "Content-Length: ");
-			strcat(request, postdatalen);
-			strcat(request, "\r\n\r\n");
-			strcat(request, postdata);
-		}
-	}else{
-		//	如果是get请求，如果存在head的文件
-		if(headdataall){
-			int maxlen = headdataallline;
-			requestall = calloc(POSTDATA_SIZE, maxlen);
-
-			if(!requestall)
-				return;
-
-			for(i = 0; i < maxlen; i++)
-			{
-				snprintf(requestall+i*POSTDATA_SIZE, POSTDATA_SIZE,
-							"%s"
-							"Accept: */*\r\n"
-							"%s"
-							"\r\n",
-							request,
-							headdataall + i * HEADDATA_SIZE);
-				printf("cccc\n%s\n",requestall+i*POSTDATA_SIZE);
-			}
-			requestallsize = i;
-			clients = i < clients ? i : clients;
-		}else {
-			if(http10>0) {
-				strcat(request,"\r\n");/* add empty line at end */
-			}
+			assertlist[assertlen] = pch;
+			pch = strtok(NULL, delim);
+			assertlen++;
 		}
 	}
-	printf("Req=%s\n",request);
+//	for (int a=0;a<assertlen;a++){
+//		printf("aaaa%s\n",assertlist[a]);
+//	}
+//在发送的时候在改post的数据，没必要这样做
+	/* add post data */
+//	if(method==METHOD_POST)
+//	{
+//		if(postdataall)
+//		{
+//			int maxlen = postdataallline > headdataallline ? postdataallline : headdataallline;
+//			requestall = calloc(POSTDATA_SIZE, maxlen);
+//
+//			if(!requestall)
+//				return;
+//
+//			for(i = 0; i < maxlen; i++)
+//			{
+//
+//				if(headdataall)
+//				{
+//					snprintf(requestall+i*POSTDATA_SIZE, POSTDATA_SIZE,
+//													"%s"
+//													"Accept: */*\r\n"
+//													"Content-Length: "
+//													"%d"
+//													"\r\n"
+//													"%s"
+//													"\r\n\r\n"
+//													"%s",
+//													request,
+//													strlen(postdataall+(i % postdataallline) * POSTDATA_SIZE),
+//													headdataall + (i % headdataallline) * HEADDATA_SIZE,
+//													postdataall + (i % postdataallline) * POSTDATA_SIZE);
+//													printf("cccc\n%s\n",requestall+i*POSTDATA_SIZE);
+//				}else
+//				{
+//					snprintf(requestall+i*POSTDATA_SIZE, POSTDATA_SIZE,
+//													"%s"
+//													"Accept: */*\r\n"
+//													"Content-Length: "
+//													"%d"
+//													"\r\n\r\n"
+//													"%s",
+//													request,
+//													strlen(postdataall+(i % postdataallline)*POSTDATA_SIZE),
+//													postdataall + (i % postdataallline) * POSTDATA_SIZE);
+//													printf("cccc\n%s\n",requestall+i*POSTDATA_SIZE);
+//				}
+//			}
+//			requestallsize = i;
+//			clients = i < clients ? i : clients;
+//			// printf("clients: %d",clients);
+//		}
+//		else
+//		{
+//			strcat(request, "Accept: */*\r\n");
+//			strcat(request, "Content-Length: ");
+//			strcat(request, postdatalen);
+//			strcat(request, "\r\n\r\n");
+//			strcat(request, postdata);
+//		}
+//	}else{
+//		//	如果是get请求，如果存在head的文件
+//		if(headdataall){
+//			int maxlen = headdataallline;
+//			requestall = calloc(POSTDATA_SIZE, maxlen);
+//
+//			if(!requestall)
+//				return;
+//
+//			for(i = 0; i < maxlen; i++)
+//			{
+//				snprintf(requestall+i*POSTDATA_SIZE, POSTDATA_SIZE,
+//							"%s"
+//							"Accept: */*\r\n"
+//							"%s"
+//							"\r\n",
+//							request,
+//							headdataall + i * HEADDATA_SIZE);
+//				printf("cccc\n%s\n",requestall+i*POSTDATA_SIZE);
+//			}
+//			requestallsize = i;
+//			clients = i < clients ? i : clients;
+//		}else {
+//			if(http10>0) {
+//				strcat(request,"\r\n");/* add empty line at end */
+//			}
+//		}
+//	}
+	int maxlen = postdataallline > headdataallline ? postdataallline : headdataallline;
+	clients = maxlen < clients ? maxlen : clients;
+//	printf("Req=%s\n",request);
 }
 
 /* vraci system rc error kod */
@@ -759,11 +793,51 @@ static int bench(void)
 		/* I am a child */
 
 		char *dsthost = host, *requestdata = request;
-		if(requestall && i < requestallsize)
-			requestdata = requestall+i*POSTDATA_SIZE;
+//		if(requestall && i < requestallsize)
+//			requestdata = requestall+i*POSTDATA_SIZE;
+
+		//动态的数据就动态赋值，这是头部
+		if(headdataall){
+			strcat(request,headdataall +  (i % headdataallline) * HEADDATA_SIZE);
+			strcat(request,"\r\n");
+		}
+//		printf("cccc\n%s\n",request);
+		//动态的数据就动态赋值，这是body
+		if(method==METHOD_POST){
+			strcat(request, "Accept: */*\r\n");
+			strcat(request, "Content-Length: ");
+
+			if(postdataall){
+//				printf("cccc\n%d\n",strlen(postdataall+(i % postdataallline) * POSTDATA_SIZE));
+				char str[10];
+				int len  = strlen(postdataall+(i % postdataallline) * POSTDATA_SIZE);
+				sprintf(str,"%d", len);
+
+//				printf("cccc\n%s\n",str);
+				strcat(request, str);
+				strcat(request, "\r\n\r\n");
+				strcat(request, postdataall + (i % postdataallline) * POSTDATA_SIZE);
+			}else{
+				char strlen[10];
+				sprintf(strlen,"%d", postdatalen);
+
+				strcat(request, strlen);
+				strcat(request, "\r\n\r\n");
+				strcat(request, postdata);
+			}
+		}
+
+//		printf("cccc\n%s\n",request);
+
+		if(http10>0) {
+			strcat(request,"\r\n");/* add empty line at end */
+		}
+
 		if(proxyhost)
 			dsthost = proxyhost;
-//		printf("%s\n",requestdata);
+
+		printf("req=%s\n",requestdata);
+
 		benchcore(dsthost,proxyport,requestdata);
 
 		/* write results to pipe */
@@ -808,8 +882,8 @@ static int bench(void)
 		}
 		fclose(f);
 
-		printf("\nSpeed=%d pages/min, %d bytes/sec.\nRequests: %d susceed, %d failed.\n",
-				(int)((speed+failed)/(benchtime/60.0f)),
+		printf("\nSpeed=%d pages/sec, %d bytes/sec.\nRequests: %d susceed, %d failed.\n",
+				(int)((speed+failed)/(benchtime)),
 				(int)(bytes/(float)benchtime),
 				speed,
 				failed);
@@ -837,7 +911,7 @@ static void set_all_time(double min,double max,double all)
 void benchcore(const char *host,const int port,const char *req)
 {
 	int rlen;
-	char buf[1500];
+	char buf[4096];
 	int s,i;
 	struct sigaction sa;
 	
@@ -854,7 +928,7 @@ void benchcore(const char *host,const int port,const char *req)
 	rlen=strlen(req);
 	nexttry:while(1)
 	{
-		
+		memset(buf,0,4096);
 		if(timerexpired)
 		{
 			if(failed>0)
@@ -882,7 +956,7 @@ void benchcore(const char *host,const int port,const char *req)
 			{
 				if(timerexpired)
 					break;
-				i=read(s,buf,1500);
+				i=read(s,buf,4096);
 				
 //				/* fprintf(stderr,"%d\n",i); */
 //				printf("%s\n",buf);
@@ -905,9 +979,31 @@ void benchcore(const char *host,const int port,const char *req)
 			mark_time(start,finish);
 		}
 		if(close(s)) {failed++;continue;}
-		speed++;
 
+		if (assertlen > 0){
+			if (assertrsp(buf)){
+//				printf("断言正确");
+				speed++;
+			}else{
+//				printf("断言错误");
+				failed++;
+			}
+		}else{
+			speed++;
+		}
 	}
 }
 
+int  assertrsp(char *rsp){
+	if(assertlen > 0){
+		for(int i=0;i<assertlen;i++){
+			char *check;
+			check = strstr(rsp,assertlist[i]);
+			if (NULL==check){
+				return 0;
+			}
+		}
+	}
+	return 1;
+}
 
