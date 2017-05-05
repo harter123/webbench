@@ -795,51 +795,46 @@ static int bench(void)
 	{
 		/* I am a child */
 
-		char *dsthost = host, *requestdata = request;
+		char *dsthost = host;//, *requestdata = request;
+		char *requestdata;
+		requestdata = (char*)malloc(REQUEST_SIZE+1);
+		requestdata = strcpy(requestdata,request);
 //		if(requestall && i < requestallsize)
 //			requestdata = requestall+i*POSTDATA_SIZE;
-
 		//动态的数据就动态赋值，这是头部
 		if(headdataall){
-			strcat(request,headdataall +  (i % headdataallline) * HEADDATA_SIZE);
-			strcat(request,"\r\n");
+			strcat(requestdata,headdataall +  (i % headdataallline) * HEADDATA_SIZE);
+			strcat(requestdata,"\r\n");
 		}
 //		printf("cccc\n%s\n",request);
 		//动态的数据就动态赋值，这是body
 		if(method==METHOD_POST){
-			strcat(request, "Accept: */*\r\n");
-			strcat(request, "Content-Length: ");
+			strcat(requestdata, "Accept: */*\r\n");
+			strcat(requestdata, "Content-Length: ");
 
 			if(postdataall){
-//				printf("cccc\n%d\n",strlen(postdataall+(i % postdataallline) * POSTDATA_SIZE));
 				char str[10];
 				int len  = strlen(postdataall+(i % postdataallline) * POSTDATA_SIZE);
 				sprintf(str,"%d", len);
 
-//				printf("cccc\n%s\n",str);
-				strcat(request, str);
-				strcat(request, "\r\n\r\n");
-				strcat(request, postdataall + (i % postdataallline) * POSTDATA_SIZE);
+				strcat(requestdata, str);
+				strcat(requestdata, "\r\n\r\n");
+				strcat(requestdata, postdataall + (i % postdataallline) * POSTDATA_SIZE);
 			}else{
 				char strlen[10];
 				sprintf(strlen,"%d", postdatalen);
 
-				strcat(request, strlen);
-				strcat(request, "\r\n\r\n");
-				strcat(request, postdata);
+				strcat(requestdata, strlen);
+				strcat(requestdata, "\r\n\r\n");
+				strcat(requestdata, postdata);
 			}
 		}
-
-//		printf("cccc\n%s\n",request);
-
 		if(http10>0) {
-			strcat(request,"\r\n");/* add empty line at end */
+			strcat(requestdata,"\r\n");/* add empty line at end */
 		}
-
+//		printf("cccc\n%s\n",requestdata);
 		if(proxyhost)
 			dsthost = proxyhost;
-
-//		printf("req=%s\n",requestdata);
 
 		benchcore(dsthost,proxyport,requestdata);
 
@@ -884,9 +879,9 @@ static int bench(void)
 			if(--clients==0) break;
 		}
 		fclose(f);
-
-		printf("\nSpeed=%d pages/sec, %d bytes/sec.\nRequests: %d susceed, %d failed.\n",
-				(int)((speed+failed)/(benchtime)),
+		double allrequest = speed+failed;
+		printf("\nSpeed=%.2f pages/sec, %d bytes/sec.\nRequests: %d susceed, %d failed.\n",
+				(double)(allrequest/benchtime),
 				(int)(bytes/(float)benchtime),
 				speed,
 				failed);
@@ -899,6 +894,7 @@ void mark_time(clock_t start,clock_t finish)
 {
 	double duration;
 	duration = (double)(finish - start);
+//	printf("%d",CLOCKS_PER_SEC);
 	min_time = duration < min_time ? duration : min_time;
 	max_time = duration > max_time ? duration : max_time;
 	all_time += duration;
@@ -942,11 +938,10 @@ void benchcore(const char *host,const int port,const char *req)
 			return;
 		}
 
+		start = clock();
 		s=Socket(host,port);                          
 		if(s<0) { failed++;continue;}
 		
-		start = clock();
-
 		if(rlen!=write(s,req,rlen)) {failed++;close(s);continue;}
 		
 		
@@ -979,11 +974,12 @@ void benchcore(const char *host,const int port,const char *req)
 
 
 		}
+
+//		printf("%s\n",buf);
 		//计算时间
 		finish = clock();
 		mark_time(start,finish);
 
-		printf("%s\n",buf);
 		if(close(s)) {failed++;continue;}
 
 		if (assertlen > 0){
