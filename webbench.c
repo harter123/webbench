@@ -119,6 +119,9 @@ static void set_all_time(double min,double max,double all);//父进程统计时�
 
 static int assertrsp(char *rsp);//用于断言
 
+static int get_headdata4file(char *filename);
+static int get_postdata4file(char *filename);
+
 static void alarm_handler(int signal)
 {
 	timerexpired=1;
@@ -974,10 +977,12 @@ void benchcore(const char *host,const int port,const char *req)
 				else bytes+=i;
 			}
 
-			//计算时间
-			finish = clock();
-			mark_time(start,finish);
+
 		}
+		//计算时间
+		finish = clock();
+		mark_time(start,finish);
+
 		printf("%s\n",buf);
 		if(close(s)) {failed++;continue;}
 
