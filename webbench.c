@@ -70,7 +70,7 @@ char *requestall = NULL;
 int requestallsize = 0;
 
 // head data in file
-#define HEADDATA_SIZE 128
+#define HEADDATA_SIZE 256
 char *headdataall = NULL;
 int headdataallline = 0;
 
@@ -142,10 +142,10 @@ static void usage(void)
 		"  --trace                  Use TRACE request method.\n"
 		"  -P|--post                Use POST request method.\n"
 		"  -h|--head                Add request head. example: -h 'Accept:*;content_type:json'. \n"
-		"  -H|--headfile            Add request head from file. the num of char in a line must be less then 128.\n"	
+		"  -H|--headfile            Add request head from file. the num of char in a line must be less then 256.\n"
 		"  -F|--file                Use POST request method from file. The num of char in a line must be less then 1024.\n"  
 		"  -?|--help                This information.\n"
-		"  -A|--assert              The key for assert.More than one keys use ';',must be less then 128.\n"
+		"  -A|--assert              The key for assert.More than one keys use ';',must be less then 256.\n"
 		"  -V|--version             Display program version.\n"
 		);
 };
@@ -613,7 +613,7 @@ void build_request(const char *url)
 		strcat(request,"Pragma: no-cache\r\n");
 	if(http10>1)
 		strcat(request,"Connection: close\r\n");
-	
+//	strcat(request,"Connection: keep-alive\r\n");
 	//这里是处理-h的参数，添加头部的值
 	if(headlen > 0){
 		/*set head*/
@@ -978,6 +978,7 @@ void benchcore(const char *host,const int port,const char *req)
 			finish = clock();
 			mark_time(start,finish);
 		}
+		printf("%s\n",buf);
 		if(close(s)) {failed++;continue;}
 
 		if (assertlen > 0){
