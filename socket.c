@@ -26,6 +26,8 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
+int set_sock_time(int fd, int read_sec, int write_sec)；
+
 int Socket(const char *host, int clientPort)
 {
     int sock;
@@ -49,10 +51,31 @@ int Socket(const char *host, int clientPort)
     ad.sin_port = htons(clientPort);
     
     sock = socket(AF_INET, SOCK_STREAM, 0);
+    set_sock_time(sock,300,300);//五分钟的超时时间
     if (sock < 0)
         return sock;
     if (connect(sock, (struct sockaddr *)&ad, sizeof(ad)) < 0)
         return -1;
     return sock;
+}
+
+int set_sock_time(int fd, int read_sec, int write_sec)
+{
+    struct timeval send_timeval;
+    struct timeval recv_timeval;
+    if(fd <= 0) return -1;
+    send_timeval.tv_sec = write_sec<0?0:write_sec;
+    send_timeval.tv_usec = 0;
+    recv_timeval.tv_sec = read_sec<0?0:read_sec;;
+    recv_timeval.tv_usec = 0;
+    if(setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &send_timeval, sizeof(send_timeval)) == -1)
+    {
+        return -1;
+    }
+    if(setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &recv_timeval, sizeof(recv_timeval)) == -1)
+    {
+        return -1;
+    }
+    return 0;
 }
 
